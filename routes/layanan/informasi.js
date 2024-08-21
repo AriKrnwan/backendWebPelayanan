@@ -33,7 +33,9 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
@@ -176,16 +178,24 @@ router.delete('/delete-informasi/:id', authenticateUser, async (req, res) => {
 
         const data = rows[0];
 
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                        console.log(`File deleted: ${resolvedPath}`);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.foto && fs.existsSync(data.foto)) {
-            fs.unlinkSync(data.foto);
-        }
-        if (data.judul && fs.existsSync(data.judul)) {
-            fs.unlinkSync(data.judul);
-        }
-        if (data.isi && fs.existsSync(data.isi)) {
-            fs.unlinkSync(data.isi);
-        }
+        deleteFiles(data.foto);
 
         // Hapus entri dari database
         await db.execute(

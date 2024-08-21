@@ -12,8 +12,8 @@ const router = express.Router();
 // Konfigurasi penyimpanan untuk multer
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const userId = req.user.id;
-        const uploadPath = path.join('uploads/pub', userId.toString());
+        // const userId = req.user.id;
+        const uploadPath = path.join('uploads/pub');
 
         // Periksa apakah direktori ada, jika tidak buat direktori tersebut
         fs.mkdir(uploadPath, { recursive: true }, (err) => {
@@ -34,7 +34,9 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
@@ -206,15 +208,21 @@ router.put('/update-pengumpulan-uang-dan-barang/:no_lay', authenticateUser, uplo
 
         // Membuat objek untuk menyimpan jalur file yang diperbarui
         const updateFields = {};
-        if (req.files && req.files.ktp) updateFields.ktp = JSON.stringify([req.files.ktp[0].path]);
-        if (req.files && req.files.suket_ormas) updateFields.suket_ormas = JSON.stringify([req.files.suket_ormas[0].path]);
-        if (req.files && req.files.suket_lks) updateFields.suket_lks = JSON.stringify([req.files.suket_lks[0].path]);
-        if (req.files && req.files.npwp) updateFields.npwp = JSON.stringify([req.files.npwp[0].path]);
-        if (req.files && req.files.bukti_setor) updateFields.bukti_setor = JSON.stringify([req.files.bukti_setor[0].path]);
-        if (req.files && req.files.rekening) updateFields.rekening = JSON.stringify([req.files.rekening[0].path]);
-        if (req.files && req.files.surat_legal) updateFields.surat_legal = JSON.stringify([req.files.surat_legal[0].path]);
-        if (req.files && req.files.surat_pernyataan_bermaterai) updateFields.surat_pernyataan_bermaterai = JSON.stringify([req.files.surat_pernyataan_bermaterai[0].path]);
-        if (req.files && req.files.product) updateFields.product = JSON.stringify([req.files.product[0].path]);
+
+        const collectFilePaths = (fieldName) => {
+            return (req.files && req.files[fieldName]) ? JSON.stringify(req.files[fieldName].map(file => file.path)) : null;
+        };
+
+        if (req.files && req.files.ktp) updateFields.ktp = collectFilePaths('ktp');
+        if (req.files && req.files.suket_ormas) updateFields.suket_ormas = collectFilePaths('suket_ormas');
+        if (req.files && req.files.suket_lks) updateFields.suket_lks = collectFilePaths('suket_lks');
+        if (req.files && req.files.npwp) updateFields.npwp = collectFilePaths('npwp');
+        if (req.files && req.files.bukti_setor) updateFields.bukti_setor = collectFilePaths('bukti_setor');
+        if (req.files && req.files.rekening) updateFields.rekening = collectFilePaths('rekening');
+        if (req.files && req.files.surat_legal) updateFields.surat_legal = collectFilePaths('surat_legal');
+        if (req.files && req.files.surat_pernyataan_bermaterai) updateFields.surat_pernyataan_bermaterai = collectFilePaths('surat_pernyataan_bermaterai');
+        if (req.files && req.files.product) updateFields.product = collectFilePaths('product');
+
         if (valid_at) updateFields.valid_at = valid_at;
         if (reject_at) updateFields.reject_at = reject_at;
         if (accept_at) updateFields.accept_at = accept_at;
@@ -229,14 +237,6 @@ router.put('/update-pengumpulan-uang-dan-barang/:no_lay', authenticateUser, uplo
         );
 
         if (Object.keys(updateFields).length > 0) {
-            const queryFields = Object.keys(updateFields).map(key => `${key} = ?`).join(', ');
-            const queryValues = Object.values(updateFields);
-
-            await db.execute(
-                `UPDATE lay_pub SET ${queryFields} WHERE no_lay = ?`,
-                [...queryValues, no_lay]
-            );
-
             res.status(200).json({ message: 'Data updated successfully', ...updateFields });
         } else {
             res.status(400).json({ message: 'No fields to update' });
@@ -266,31 +266,30 @@ router.delete('/delete-pengumpulan-uang-dan-barang/:no_lay', authenticateUser, a
 
         const data = rows[0];
 
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.ktp && fs.existsSync(data.ktp)) {
-            fs.unlinkSync(data.ktp);
-        }
-        if (data.suket_ormas && fs.existsSync(data.suket_ormas)) {
-            fs.unlinkSync(data.suket_ormas);
-        }
-        if (data.suket_lks && fs.existsSync(data.suket_lks)) {
-            fs.unlinkSync(data.suket_lks);
-        }
-        if (data.npwp && fs.existsSync(data.npwp)) {
-            fs.unlinkSync(data.npwp);
-        }
-        if (data.bukti_setor && fs.existsSync(data.bukti_setor)) {
-            fs.unlinkSync(data.bukti_setor);
-        }
-        if (data.rekening && fs.existsSync(data.rekening)) {
-            fs.unlinkSync(data.rekening);
-        }
-        if (data.surat_legal && fs.existsSync(data.surat_legal)) {
-            fs.unlinkSync(data.surat_legal);
-        }
-        if (data.surat_pernyataan_bermaterai && fs.existsSync(data.surat_pernyataan_bermaterai)) {
-            fs.unlinkSync(data.surat_pernyataan_bermaterai);
-        }
+        deleteFiles(data.ktp);
+        deleteFiles(data.suket_ormas);
+        deleteFiles(data.suket_lks);
+        deleteFiles(data.npwp);
+        deleteFiles(data.bukti_setor);
+        deleteFiles(data.rekening);
+        deleteFiles(data.surat_legal);
+        deleteFiles(data.surat_pernyataan_bermaterai);
 
         // Hapus entri dari database
         await db.execute(
@@ -312,7 +311,7 @@ router.delete('/delete-pengumpulan-uang-dan-barang/:no_lay', authenticateUser, a
 router.get('/all-lay-pengumpulan-uang-dan-barang', async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT lay_pub.*, users.nik, users.full_name AS nama 
+            `SELECT lay_pub.id AS lay_id, lay_pub.*, users.*
             FROM lay_pub 
             JOIN users ON lay_pub.user_nik = users.nik`
         );

@@ -33,24 +33,23 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
 const upload = multer({ storage: storage });
 
 // POST
-router.post('/upload-Pengaduan', authenticateUser, upload.fields([
-    { name: 'foto' },
-]), async (req, res) => {
+router.post('/upload-Pengaduan', authenticateUser, upload.fields([{ name: 'foto' }]), async (req, res) => {
     const { masalah, harapan, user_nik } = req.body;
 
-    console.log('Request body:', req.body);
-    console.log('Request files:', req.files);
-
-    if (!masalah || !harapan) {
-        console.log('Field Diperlukan'); // Log untuk debug
-        return res.status(400).json({ message: 'Field Diperlukan' });
+    const requiredFields = ['foto'];
+    for (const field of requiredFields) {
+        if (!req.files[field]) {
+            return res.status(400).json({ message: `${field} diperlukan` });
+        }
     }
 
     const date = new Date();
@@ -84,12 +83,11 @@ router.post('/upload-Pengaduan', authenticateUser, upload.fields([
         }
 
         // Membuat objek untuk menyimpan jalur file jika ada
-        let fotoPaths = [];
-        if (req.files['foto']) {
-            fotoPaths = req.files['foto'].map(file => file.path);
+        const filePaths = {};
+        for (const field of requiredFields) {
+            filePaths[field] = req.files[field].map(file => file.path);
         }
 
-        console.log('Inserting into database...');
         const [result] = await db.execute(
             'INSERT INTO pengaduan (no_adu, user_nik, masalah, harapan, foto, submit_at) VALUES (?, ?, ?, ?, ?, NOW())',
             [
@@ -97,7 +95,7 @@ router.post('/upload-Pengaduan', authenticateUser, upload.fields([
                 user_nik,
                 masalah,
                 harapan,
-                JSON.stringify(fotoPaths),
+                JSON.stringify(filePaths.foto)
             ]
         );
 
@@ -152,7 +150,7 @@ router.get('/lay-pengaduan/:no_adu', authenticateUser, async (req, res) => {
 
         // Query untuk mendapatkan data user
         const [userRows] = await db.execute(
-            'SELECT * FROM users WHERE id = ?',
+            'SELECT * FROM users WHERE nik = ?',
             [userId]
             );
 
@@ -236,19 +234,23 @@ router.delete('/delete-pengaduan/:no_adu', authenticateUser, async (req, res) =>
 
         const data = rows[0];
 
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.foto && fs.existsSync(data.foto)) {
-            fs.unlinkSync(data.foto);
-        }
-        if (data.masalah && fs.existsSync(data.masalah)) {
-            fs.unlinkSync(data.masalah);
-        }
-        if (data.harapan && fs.existsSync(data.harapan)) {
-            fs.unlinkSync(data.harapan);
-        }
-        if (data.jawaban && fs.existsSync(data.jawaban)) {
-            fs.unlinkSync(data.jawaban);
-        }
+        deleteFiles(data.foto);
 
         // Hapus entri dari database
         await db.execute(
@@ -277,6 +279,12 @@ router.get('/all-lay-pengaduan-DSPM', authenticateUser, async (req, res) => {
             JOIN users ON pengaduan.user_nik = users.nik`
         );
 
+        if (rows.length === 0) {
+            console.log("No data found in the database");
+        } else {
+            console.log("Data retrieved from the database:", rows);
+        }
+
         res.status(200).json(rows);
     } catch (error) {
         console.error(error);
@@ -286,17 +294,19 @@ router.get('/all-lay-pengaduan-DSPM', authenticateUser, async (req, res) => {
 
 
 router.post('/admin-upload-pengaduan', authenticateUser, upload.fields([
-    { name: 'foto', maxCount: 1 },
+    { name: 'foto' },
 ]), async (req, res) => {
     const { masalah, harapan, NIK } = req.body;
 
     try {
-        // Mengambil user_nik berdasarkan NIK
-        const [user] = await db.execute('SELECT id FROM users WHERE nik = ?', [NIK]);
-        if (user.length === 0) {
-            return res.status(404).json({ message: 'User not found' });
+        const user_nik = NIK;
+
+        const requiredFields = ['foto'];
+        for (const field of requiredFields) {
+            if (!req.files[field]) {
+                return res.status(400).json({ message: `${field} diperlukan` });
+            }
         }
-        const user_nik = user[0].id;
 
         // Pastikan `masalah` dan `harapan` ada dan tidak undefined
         if (!masalah || !harapan) {
@@ -334,8 +344,8 @@ router.post('/admin-upload-pengaduan', authenticateUser, upload.fields([
 
         // Membuat objek untuk menyimpan jalur file relatif dari 'uploads'
         const filePaths = {};
-        if (req.files && req.files.foto) {
-            filePaths.foto = req.files.foto.map(file => file.path);
+        for (const field of requiredFields) {
+            filePaths[field] = req.files[field].map(file => file.path);
         }
 
         const [result] = await db.execute(
@@ -343,7 +353,7 @@ router.post('/admin-upload-pengaduan', authenticateUser, upload.fields([
             [
                 no_adu,
                 user_nik,
-                req.files && req.files.foto ? JSON.stringify(filePaths.foto) : null,
+                JSON.stringify(filePaths.foto),
                 masalah,
                 harapan
             ]

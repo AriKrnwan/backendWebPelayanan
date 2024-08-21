@@ -12,8 +12,7 @@ const router = express.Router();
 // Konfigurasi penyimpanan untuk multer
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const userId = req.user.id;
-        const uploadPath = path.join('uploads/pbijk', userId.toString());
+        const uploadPath = path.join('uploads/pbijk');
 
         // Periksa apakah direktori ada, jika tidak buat direktori tersebut
         fs.mkdir(uploadPath, { recursive: true }, (err) => {
@@ -34,7 +33,9 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
@@ -67,7 +68,7 @@ router.post('/upload-Pbijk', authenticateUser, upload.fields([
             [formattedDate]
         );
 
-        let count = countResult[0].count + 1; // Increment count for the current submission
+        let count = countResult[0].count + 1; 
         let no_lay;
         let isUnique = false;
 
@@ -170,7 +171,7 @@ router.put('/update-PBI-JK/:no_lay', authenticateUser, upload.fields([
     { name: 'product' }
 ]), async (req, res) => {
     const { no_lay } = req.params;
-    const { valid_at, reject_at, accept_at, reason } = req.body;
+    const { jml_tedampak, valid_at, reject_at, accept_at, reason } = req.body;
 
     try {
         const [rows] = await db.execute(
@@ -183,9 +184,16 @@ router.put('/update-PBI-JK/:no_lay', authenticateUser, upload.fields([
         }
 
         const updateFields = {};
-        if (req.files && req.files.ktp) updateFields.ktp = JSON.stringify([req.files.ktp[0].path]);
-        if (req.files && req.files.suket_rawat_inap) updateFields.suket_rawat_inap = JSON.stringify([req.files.suket_rawat_inap[0].path]);
-        if (req.files && req.files.product) updateFields.product = JSON.stringify([req.files.product[0].path]);
+
+        const collectFilePaths = (fieldName) => {
+            return (req.files && req.files[fieldName]) ? JSON.stringify(req.files[fieldName].map(file => file.path)) : null;
+        };
+
+        if (req.files && req.files.ktp) updateFields.ktp = collectFilePaths('ktp');
+        if (req.files && req.files.suket_rawat_inap) updateFields.suket_rawat_inap = collectFilePaths('suket_rawat_inap');
+        if (req.files && req.files.product) updateFields.product = collectFilePaths('product');
+
+        if (jml_tedampak) updateFields.jml_tedampak = jml_tedampak;
         if (valid_at) updateFields.valid_at = valid_at;
         if (reject_at) updateFields.reject_at = reject_at;
         if (accept_at) updateFields.accept_at = accept_at;
@@ -200,33 +208,25 @@ router.put('/update-PBI-JK/:no_lay', authenticateUser, upload.fields([
         );
 
         if (Object.keys(updateFields).length > 0) {
-            const queryFields = Object.keys(updateFields).map(key => `${key} = ?`).join(', ');
-            const queryValues = Object.values(updateFields);
-
-            await db.execute(
-                `UPDATE lay_pbijk SET ${queryFields} WHERE no_lay = ?`,
-                [...queryValues, no_lay]
-            );
-
             res.status(200).json({ message: 'Data updated successfully', ...updateFields });
         } else {
             res.status(400).json({ message: 'No fields to update' });
         }
+
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Kesalahan database', error });
+        console.error('Database error:', error);
+        res.status(500).json({ message: 'Database error', error });
     }
 });
 
 router.delete('/delete-PBI-JK/:no_lay', authenticateUser, async (req, res) => {
     const { no_lay } = req.params;
-    const user_nik = req.user.id;
 
     try {
         // Dapatkan data yang akan dihapus
         const [rows] = await db.execute(
-            'SELECT * FROM lay_pbijk WHERE no_lay = ? AND user_nik = ?',
-            [no_lay, user_nik]
+            'SELECT * FROM lay_pbijk WHERE no_lay = ?',
+            [no_lay]
         );
 
         if (rows.length === 0) {
@@ -235,18 +235,31 @@ router.delete('/delete-PBI-JK/:no_lay', authenticateUser, async (req, res) => {
 
         const data = rows[0];
 
+        // Fungsi untuk menghapus file berdasarkan array path
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                        console.log(`File deleted: ${resolvedPath}`);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.ktp && fs.existsSync(data.ktp)) {
-            fs.unlinkSync(data.ktp);
-        }
-        if (data.suket_rawat_inap && fs.existsSync(data.suket_rawat_inap)) {
-            fs.unlinkSync(data.suket_rawat_inap);
-        }
+        deleteFiles(data.ktp);
+        deleteFiles(data.suket_rawat_inap);
 
         // Hapus entri dari database
         await db.execute(
-            'DELETE FROM lay_pbijk WHERE no_lay = ? AND user_nik = ?',
-            [no_lay, user_nik]
+            'DELETE FROM lay_pbijk WHERE no_lay = ?',
+            [no_lay]
         );
 
         res.status(200).json({ message: 'Data deleted successfully' });
@@ -263,7 +276,7 @@ router.delete('/delete-PBI-JK/:no_lay', authenticateUser, async (req, res) => {
 router.get('/all-lay-PBI-JK', async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT lay_pbijk.*, users.nik, users.full_name AS nama 
+            `SELECT lay_pbijk.id AS lay_id, lay_pbijk.*, users.*
             FROM lay_pbijk 
             JOIN users ON lay_pbijk.user_nik = users.nik`
         );

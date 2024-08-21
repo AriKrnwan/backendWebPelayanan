@@ -33,7 +33,9 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
@@ -215,18 +217,24 @@ router.put('/update-pengangkatan-anak/:no_lay', authenticateUser, upload.fields(
 
         // Membuat objek untuk menyimpan jalur file yang diperbarui
         const updateFields = {};
-        if (req.files && req.files.ktp) updateFields.ktp = JSON.stringify([req.files.ktp[0].path]);
-        if (req.files && req.files.suket_fisik_jiwa) updateFields.suket_fisik_jiwa = JSON.stringify([req.files.suket_fisik_jiwa[0].path]);
-        if (req.files && req.files.suket_narkoba) updateFields.suket_narkoba = JSON.stringify([req.files.suket_narkoba[0].path]);
-        if (req.files && req.files.skck) updateFields.skck = JSON.stringify([req.files.skck[0].path]);
-        if (req.files && req.files.suket_penghasilan) updateFields.suket_penghasilan = JSON.stringify([req.files.suket_penghasilan[0].path]);
-        if (req.files && req.files.izin_tertulis) updateFields.izin_tertulis = JSON.stringify([req.files.izin_tertulis[0].path]);
-        if (req.files && req.files.kk) updateFields.kk = JSON.stringify([req.files.kk[0].path]);
-        if (req.files && req.files.akta_kelahiran) updateFields.akta_kelahiran = JSON.stringify([req.files.akta_kelahiran[0].path]);
-        if (req.files && req.files.akta_nikah) updateFields.akta_nikah = JSON.stringify([req.files.akta_nikah[0].path]);
-        if (req.files && req.files.foto) updateFields.foto = JSON.stringify([req.files.foto[0].path]);
-        if (req.files && req.files.form_pernyataan) updateFields.form_pernyataan = JSON.stringify([req.files.form_pernyataan[0].path]);
-        if (req.files && req.files.product) updateFields.product = JSON.stringify([req.files.product[0].path]);
+
+        const collectFilePaths = (fieldName) => {
+            return (req.files && req.files[fieldName]) ? JSON.stringify(req.files[fieldName].map(file => file.path)) : null;
+        };
+
+        if (req.files && req.files.ktp) updateFields.ktp = collectFilePaths('ktp');
+        if (req.files && req.files.suket_fisik_jiwa) updateFields.suket_fisik_jiwa = collectFilePaths('suket_fisik_jiwa');
+        if (req.files && req.files.suket_narkoba) updateFields.suket_narkoba = collectFilePaths('suket_narkoba');
+        if (req.files && req.files.skck) updateFields.skck = collectFilePaths('skck');
+        if (req.files && req.files.suket_penghasilan) updateFields.suket_penghasilan = collectFilePaths('suket_penghasilan');
+        if (req.files && req.files.izin_tertulis) updateFields.izin_tertulis = collectFilePaths('izin_tertulis');
+        if (req.files && req.files.kk) updateFields.kk = collectFilePaths('kk');
+        if (req.files && req.files.akta_kelahiran) updateFields.akta_kelahiran = collectFilePaths('akta_kelahiran');
+        if (req.files && req.files.akta_nikah) updateFields.akta_nikah = collectFilePaths('akta_nikah');
+        if (req.files && req.files.foto) updateFields.foto = collectFilePaths('foto');
+        if (req.files && req.files.form_pernyataan) updateFields.form_pernyataan = collectFilePaths('form_pernyataan');
+        if (req.files && req.files.product) updateFields.product = collectFilePaths('product');
+
         if (valid_at) updateFields.valid_at = valid_at;
         if (reject_at) updateFields.reject_at = reject_at;
         if (accept_at) updateFields.accept_at = accept_at;
@@ -241,30 +249,19 @@ router.put('/update-pengangkatan-anak/:no_lay', authenticateUser, upload.fields(
         );
 
         if (Object.keys(updateFields).length > 0) {
-            const queryFields = Object.keys(updateFields).map(key => `${key} = ?`).join(', ');
-            const queryValues = Object.values(updateFields);
-
-            await db.execute(
-                `UPDATE lay_angkat_anak SET ${queryFields} WHERE no_lay = ?`,
-                [...queryValues, no_lay]
-            );
-
             res.status(200).json({ message: 'Data updated successfully', ...updateFields });
         } else {
             res.status(400).json({ message: 'No fields to update' });
         }
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Kesalahan database', error });
     }
 });
 
-
-
-
 router.delete('/delete-pengangkatan-anak/:no_lay', authenticateUser, async (req, res) => {
     const { no_lay } = req.params;
-    const user_nik = req.user.id;
 
     try {
         // Dapatkan data yang akan dihapus
@@ -279,45 +276,38 @@ router.delete('/delete-pengangkatan-anak/:no_lay', authenticateUser, async (req,
 
         const data = rows[0];
 
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.ktp && fs.existsSync(data.ktp)) {
-            fs.unlinkSync(data.ktp);
-        }
-        if (data.suket_fisik_jiwa && fs.existsSync(data.suket_fisik_jiwa)) {
-            fs.unlinkSync(data.suket_fisik_jiwa);
-        }
-        if (data.suket_narkoba && fs.existsSync(data.suket_narkoba)) {
-            fs.unlinkSync(data.suket_narkoba);
-        }
-        if (data.skck && fs.existsSync(data.skck)) {
-            fs.unlinkSync(data.skck);
-        }
-        if (data.suket_penghasilan && fs.existsSync(data.suket_penghasilan)) {
-            fs.unlinkSync(data.suket_penghasilan);
-        }
-        if (data.izin_tertulis && fs.existsSync(data.izin_tertulis)) {
-            fs.unlinkSync(data.izin_tertulis);
-        }
-        if (data.kk && fs.existsSync(data.kk)) {
-            fs.unlinkSync(data.kk);
-        }
-        if (data.akta_kelahiran && fs.existsSync(data.akta_kelahiran)) {
-            fs.unlinkSync(data.akta_kelahiran);
-        }
-        if (data.akta_nikah && fs.existsSync(data.akta_nikah)) {
-            fs.unlinkSync(data.akta_nikah);
-        }
-        if (data.foto && fs.existsSync(data.foto)) {
-            fs.unlinkSync(data.foto);
-        }
-        if (data.form_pernyataan && fs.existsSync(data.form_pernyataan)) {
-            fs.unlinkSync(data.form_pernyataan);
-        }
+        deleteFiles(data.ktp);
+        deleteFiles(data.suket_fisik_jiwa);
+        deleteFiles(data.suket_narkoba);
+        deleteFiles(data.skck);
+        deleteFiles(data.suket_penghasilan);
+        deleteFiles(data.izin_tertulis);
+        deleteFiles(data.kk);
+        deleteFiles(data.akta_kelahiran);
+        deleteFiles(data.akta_nikah);
+        deleteFiles(data.foto);
+        deleteFiles(data.form_pernyataan);
 
         // Hapus entri dari database
         await db.execute(
-            'DELETE FROM lay_angkat_anak WHERE no_lay = ? AND user_nik = ?',
-            [no_lay, user_nik]
+            'DELETE FROM lay_angkat_anak WHERE no_lay = ?',
+            [no_lay]
         );
 
         res.status(200).json({ message: 'Data deleted successfully' });
@@ -333,7 +323,7 @@ router.delete('/delete-pengangkatan-anak/:no_lay', authenticateUser, async (req,
 router.get('/all-lay-pengangkatan-anak', async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT lay_angkat_anak.*, users.nik, users.full_name AS nama 
+            `SELECT lay_angkat_anak.id AS lay_id, lay_angkat_anak.*, users.*
             FROM lay_angkat_anak 
             JOIN users ON lay_angkat_anak.user_nik = users.nik`
         );

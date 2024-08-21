@@ -8,9 +8,16 @@ router.post('/register', async (req, res) => {
     try {
         const { NIK, nama, gender, alamat, kecamatan, kelurahan, rt, pendidikan, pekerjaan, email, no_telepon, password, role_id } = req.body;
 
-        const [rows] = await pool.query('SELECT * FROM users WHERE nik = ?', [NIK]);
-        if (rows.length > 0) {
-            return res.status(400).json({ msg: "GATAU KENAPA" });
+        // Check if the NIK already exists
+        const [nikRows] = await pool.query('SELECT * FROM users WHERE nik = ?', [NIK]);
+        if (nikRows.length > 0) {
+            return res.status(400).json({ msg: "NIK already exists" });
+        }
+
+        // Check if the email already exists
+        const [emailRows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+        if (emailRows.length > 0) {
+            return res.status(400).json({ msg: "Email already exists" });
         }
 
         const salt = await bcrypt.genSalt(10);

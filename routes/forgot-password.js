@@ -49,14 +49,13 @@ router.post('/forgot-password', async (req, res) => {
             from: 'noreply@example.com',
             to: email,
             subject: 'Password Reset',
-            text: `Your new password is: ${newPassword}`
+            // text: `Password barumu: ${newPassword}`
+            html: `<p>Password barumu: <b>${newPassword}</b></p>
+                   <p>Jika anda ingin mengganti password dengan password yang lebih mudah diingat, anda bisa login terlebih dahulu menggunakan password baru ini, setelah itu masuk ke halaman profil. Pada halaman profil anda bisa mengisi password baru, setelah itu tekan tombol "Update Data".</p>`
         });
 
-        // Menampilkan kata sandi baru di console (opsional, sebaiknya dihapus untuk keamanan)
-        console.log(`New password for ${email}: ${newPassword}`);
-
         // Mengirim respons sukses
-        res.status(200).json({ msg: "Password has been reset and sent to your email" });
+        res.status(200).json({ msg: "Password baru telah dikirim ke email" });
 
     } catch (err) {
         console.error("Error:", err);

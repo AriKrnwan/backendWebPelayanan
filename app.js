@@ -24,11 +24,11 @@ const downloadRoute = require('./routes/download');
 const pengaduanRoute = require('./routes/layanan/pengaduan');
 const informasiRoute = require('./routes/layanan/informasi');
 const notifikasiRoute = require('./routes/notifikasi');
+const templateRoute = require('./routes/layanan/template');
 
 const app = express();
 
 app.use(express.json());
-app.use('/uploads', express.static('uploads')); // Serve static files
 
 // Set up CORS to allow requests from frontend
 app.use(cors({
@@ -36,6 +36,17 @@ app.use(cors({
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true // Mengizinkan kredensial (cookie) untuk dikirim
 }));
+
+// Middleware to set CORS headers for static files
+app.use('/uploads', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    next();
+});
+
+// Serve static files
+app.use('/uploads', express.static('uploads'));
 
 app.use(session({
     secret: 'your-secret-key',
@@ -67,6 +78,7 @@ app.use('/api', downloadRoute);
 app.use('/api', pengaduanRoute);
 app.use('/api', informasiRoute);
 app.use('/api', notifikasiRoute);
+app.use('/api', templateRoute);
 
 
 const PORT = process.env.PORT || 4121;

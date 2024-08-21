@@ -12,8 +12,7 @@ const router = express.Router();
 // Konfigurasi penyimpanan untuk multer
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const userId = req.user.id;
-        const uploadPath = path.join('uploads/rehabilitasi-lansia', userId.toString());
+        const uploadPath = path.join('uploads/rehabilitasi-lansia');
 
         // Periksa apakah direktori ada, jika tidak buat direktori tersebut
         fs.mkdir(uploadPath, { recursive: true }, (err) => {
@@ -34,7 +33,9 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
@@ -188,9 +189,15 @@ router.put('/update-rehabilitasi-lansia/:no_lay', authenticateUser, upload.field
         }
 
         const updateFields = {};
-        if (req.files && req.files.ktp) updateFields.ktp = JSON.stringify([req.files.ktp[0].path]);
-        if (req.files && req.files.kk) updateFields.kk = JSON.stringify([req.files.kk[0].path]);
-        if (req.files && req.files.product) updateFields.product = JSON.stringify([req.files.product[0].path]);
+        
+        const collectFilePaths = (fieldName) => {
+            return (req.files && req.files[fieldName]) ? JSON.stringify(req.files[fieldName].map(file => file.path)) : null;
+        };
+
+        if (req.files && req.files.ktp) updateFields.ktp = collectFilePaths('ktp');
+        if (req.files && req.files.kk) updateFields.kk = collectFilePaths('kk');
+        if (req.files && req.files.product) updateFields.product = collectFilePaths('product');
+
         if (kebutuhan) updateFields.kebutuhan = kebutuhan;
         if (valid_at) updateFields.valid_at = valid_at;
         if (reject_at) updateFields.reject_at = reject_at;
@@ -206,18 +213,11 @@ router.put('/update-rehabilitasi-lansia/:no_lay', authenticateUser, upload.field
         );
 
         if (Object.keys(updateFields).length > 0) {
-            const queryFields = Object.keys(updateFields).map(key => `${key} = ?`).join(', ');
-            const queryValues = Object.values(updateFields);
-
-            await db.execute(
-                `UPDATE lay_rehab_lansia SET ${queryFields} WHERE no_lay = ?`,
-                [...queryValues, no_lay]
-            );
-
             res.status(200).json({ message: 'Data updated successfully', ...updateFields });
         } else {
             res.status(400).json({ message: 'No fields to update' });
         }
+        
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Kesalahan database', error });
@@ -241,13 +241,24 @@ router.delete('/delete-rehabilitasi-lansia/:no_lay', authenticateUser, async (re
 
         const data = rows[0];
 
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.ktp && fs.existsSync(data.ktp)) {
-            fs.unlinkSync(data.ktp);
-        }
-        if (data.kk && fs.existsSync(data.kk)) {
-            fs.unlinkSync(data.kk);
-        }
+        deleteFiles(data.ktp);
+        deleteFiles(data.kk);
 
         // Hapus entri dari database
         await db.execute(
@@ -268,7 +279,7 @@ router.delete('/delete-rehabilitasi-lansia/:no_lay', authenticateUser, async (re
 router.get('/all-lay-rehabilitasi-lansia', async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT lay_rehab_lansia.*, users.nik, users.full_name AS nama 
+            `SELECT lay_rehab_lansia.id AS lay_id, lay_rehab_lansia.*, users.*
             FROM lay_rehab_lansia 
             JOIN users ON lay_rehab_lansia.user_nik = users.nik`
         );

@@ -12,8 +12,7 @@ const router = express.Router();
 // Konfigurasi penyimpanan untuk multer
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const userId = req.user.id;
-        const uploadPath = path.join('uploads/rumah-singgah', userId.toString());
+        const uploadPath = path.join('uploads/rumah-singgah');
 
         // Periksa apakah direktori ada, jika tidak buat direktori tersebut
         fs.mkdir(uploadPath, { recursive: true }, (err) => {
@@ -34,7 +33,9 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
@@ -48,11 +49,14 @@ router.post('/upload-Rumah-Singgah', authenticateUser, upload.fields([
     { name: 'surat_rujukan' },
     { name: 'identitas_pmks' },
     { name: 'identitas_pelapor' },
+    { name: 'berita_acara' },
+    { name: 'surat_pernyataan' },
+    { name: 'foto' },
 ]), async (req, res) => {
     const { user_nik } = req.body;
 
     // Mengecek apakah semua file diunggah
-    const requiredFields = ['ktp', 'surat_rujukan', 'identitas_pmks', 'identitas_pelapor'];
+    const requiredFields = ['ktp', 'surat_rujukan', 'identitas_pmks', 'identitas_pelapor', 'berita_acara', 'surat_pernyataan', 'foto'];
     for (const field of requiredFields) {
         if (!req.files[field]) {
             return res.status(400).json({ message: `${field} diperlukan` });
@@ -96,14 +100,17 @@ router.post('/upload-Rumah-Singgah', authenticateUser, upload.fields([
         }
 
         const [result] = await db.execute(
-            'INSERT INTO lay_rumah_singgah (no_lay, user_nik, ktp, surat_rujukan, identitas_pmks, identitas_pelapor, submit_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            'INSERT INTO lay_rumah_singgah (no_lay, user_nik, ktp, surat_rujukan, identitas_pmks, identitas_pelapor, berita_acara, surat_pernyataan, foto, submit_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
             [
                 no_lay,
                 user_nik,
                 JSON.stringify(filePaths.ktp),
                 JSON.stringify(filePaths.surat_rujukan),
                 JSON.stringify(filePaths.identitas_pmks),
-                JSON.stringify(filePaths.identitas_pelapor)
+                JSON.stringify(filePaths.identitas_pelapor),
+                JSON.stringify(filePaths.berita_acara),
+                JSON.stringify(filePaths.surat_pernyataan),
+                JSON.stringify(filePaths.foto),
             ]
         );
 
@@ -120,7 +127,7 @@ router.get('/lay-rumah-singgah', async (req, res) => {
 
     try {
         const [rows] = await db.execute(
-            'SELECT id, no_lay, user_nik, ktp, surat_rujukan, identitas_pmks, identitas_pelapor, submit_at, valid_at, reject_at, accept_at FROM lay_rumah_singgah WHERE user_nik = ?',
+            'SELECT id, no_lay, user_nik, ktp, surat_rujukan, identitas_pmks, identitas_pelapor, berita_acara, surat_pernyataan, foto, submit_at, valid_at, reject_at, accept_at FROM lay_rumah_singgah WHERE user_nik = ?',
             [user_nik]
         );
 
@@ -173,6 +180,9 @@ router.put('/update-rumah-singgah/:no_lay', authenticateUser, upload.fields([
     { name: 'surat_rujukan' },
     { name: 'identitas_pmks' },
     { name: 'identitas_pelapor' },
+    { name: 'berita_acara' },
+    { name: 'surat_pernyataan' },
+    { name: 'foto' },
     { name: 'product' }
 ]), async (req, res) => {
     const { no_lay } = req.params;
@@ -189,11 +199,20 @@ router.put('/update-rumah-singgah/:no_lay', authenticateUser, upload.fields([
         }
 
         const updateFields = {};
-        if (req.files && req.files.ktp) updateFields.ktp = JSON.stringify([req.files.ktp[0].path]);
-        if (req.files && req.files.surat_rujukan) updateFields.surat_rujukan = JSON.stringify([req.files.surat_rujukan[0].path]);
-        if (req.files && req.files.identitas_pmks) updateFields.identitas_pmks = JSON.stringify([req.files.identitas_pmks[0].path]);
-        if (req.files && req.files.identitas_pelapor) updateFields.identitas_pelapor = JSON.stringify([req.files.identitas_pelapor[0].path]);
-        if (req.files && req.files.product) updateFields.product = JSON.stringify([req.files.product[0].path]);
+
+        const collectFilePaths = (fieldName) => {
+            return (req.files && req.files[fieldName]) ? JSON.stringify(req.files[fieldName].map(file => file.path)) : null;
+        };
+
+        if (req.files && req.files.ktp) updateFields.ktp = collectFilePaths('ktp');
+        if (req.files && req.files.surat_rujukan) updateFields.surat_rujukan = collectFilePaths('surat_rujukan');
+        if (req.files && req.files.identitas_pmks) updateFields.identitas_pmks = collectFilePaths('identitas_pmks');
+        if (req.files && req.files.identitas_pelapor) updateFields.identitas_pelapor = collectFilePaths('identitas_pelapor');
+        if (req.files && req.files.berita_acara) updateFields.berita_acara = collectFilePaths('berita_acara');
+        if (req.files && req.files.surat_pernyataan) updateFields.surat_pernyataan = collectFilePaths('surat_pernyataan');
+        if (req.files && req.files.foto) updateFields.foto = collectFilePaths('foto');
+        if (req.files && req.files.product) updateFields.product = collectFilePaths('product');
+
         if (valid_at) updateFields.valid_at = valid_at;
         if (reject_at) updateFields.reject_at = reject_at;
         if (accept_at) updateFields.accept_at = accept_at;
@@ -208,18 +227,11 @@ router.put('/update-rumah-singgah/:no_lay', authenticateUser, upload.fields([
         );
 
         if (Object.keys(updateFields).length > 0) {
-            const queryFields = Object.keys(updateFields).map(key => `${key} = ?`).join(', ');
-            const queryValues = Object.values(updateFields);
-
-            await db.execute(
-                `UPDATE lay_rumah_singgah SET ${queryFields} WHERE no_lay = ?`,
-                [...queryValues, no_lay]
-            );
-
             res.status(200).json({ message: 'Data updated successfully', ...updateFields });
         } else {
             res.status(400).json({ message: 'No fields to update' });
         }
+        
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Kesalahan database', error });
@@ -245,19 +257,29 @@ router.delete('/delete-rumah-singgah/:no_lay', authenticateUser, async (req, res
 
         const data = rows[0];
 
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.ktp && fs.existsSync(data.ktp)) {
-            fs.unlinkSync(data.ktp);
-        }
-        if (data.surat_rujukan && fs.existsSync(data.surat_rujukan)) {
-            fs.unlinkSync(data.surat_rujukan);
-        }
-        if (data.identitas_pmks && fs.existsSync(data.identitas_pmks)) {
-            fs.unlinkSync(data.identitas_pmks);
-        }
-        if (data.identitas_pelapor && fs.existsSync(data.identitas_pelapor)) {
-            fs.unlinkSync(data.identitas_pelapor);
-        }
+        deleteFiles(data.ktp);
+        deleteFiles(data.surat_rujukan);
+        deleteFiles(data.identitas_pmks);
+        deleteFiles(data.identitas_pelapor);
+        deleteFiles(data.berita_acara);
+        deleteFiles(data.surat_pernyataan);
+        deleteFiles(data.foto);
 
         // Hapus entri dari database
         await db.execute(
@@ -278,7 +300,7 @@ router.delete('/delete-rumah-singgah/:no_lay', authenticateUser, async (req, res
 router.get('/all-lay-rumah-singgah', async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT lay_rumah_singgah.*, users.nik, users.full_name AS nama 
+            `SELECT lay_rumah_singgah.id AS lay_id, lay_rumah_singgah.*, users.*
             FROM lay_rumah_singgah 
             JOIN users ON lay_rumah_singgah.user_nik = users.nik`
         );
@@ -295,6 +317,9 @@ router.post('/admin-upload-rumah-singgah', authenticateUser, upload.fields([
     { name: 'surat_rujukan' },
     { name: 'identitas_pmks' },
     { name: 'identitas_pelapor' },
+    { name: 'berita_acara' },
+    { name: 'surat_pernyataan' },
+    { name: 'foto' },
 ]), async (req, res) => {
     const { NIK } = req.body;
 
@@ -302,7 +327,7 @@ router.post('/admin-upload-rumah-singgah', authenticateUser, upload.fields([
         const user_nik = NIK;
 
         // Mengecek apakah semua file diunggah
-        const requiredFields = ['ktp', 'surat_rujukan', 'identitas_pmks', 'identitas_pelapor'];
+        const requiredFields = ['ktp', 'surat_rujukan', 'identitas_pmks', 'identitas_pelapor', 'berita_acara', 'surat_pernyataan', 'foto'];
         for (const field of requiredFields) {
             if (!req.files[field]) {
                 return res.status(400).json({ message: `${field} diperlukan` });
@@ -345,7 +370,7 @@ router.post('/admin-upload-rumah-singgah', authenticateUser, upload.fields([
         }
 
         const [result] = await db.execute(
-            'INSERT INTO lay_rumah_singgah (no_lay, user_nik, ktp, surat_rujukan, identitas_pmks, identitas_pelapor, submit_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            'INSERT INTO lay_rumah_singgah (no_lay, user_nik, ktp, surat_rujukan, identitas_pmks, identitas_pelapor, berita_acara, surat_pernyataan, foto, submit_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
             [
                 no_lay,
                 user_nik,
@@ -353,6 +378,9 @@ router.post('/admin-upload-rumah-singgah', authenticateUser, upload.fields([
                 JSON.stringify(filePaths.surat_rujukan),
                 JSON.stringify(filePaths.identitas_pmks),
                 JSON.stringify(filePaths.identitas_pelapor),
+                JSON.stringify(filePaths.berita_acara),
+                JSON.stringify(filePaths.surat_pernyataan),
+                JSON.stringify(filePaths.foto),
             ]
         );
 

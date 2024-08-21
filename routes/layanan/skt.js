@@ -12,8 +12,7 @@ const router = express.Router();
 // Konfigurasi penyimpanan untuk multer
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const userId = req.user.id;
-        const uploadPath = path.join('uploads/skt', userId.toString());
+        const uploadPath = path.join('uploads/skt');
 
         // Periksa apakah direktori ada, jika tidak buat direktori tersebut
         fs.mkdir(uploadPath, { recursive: true }, (err) => {
@@ -34,7 +33,9 @@ const storage = multer.diskStorage({
         // Gabungkan nama original dengan 10 angka terakhir nomor unik
         const finalFileName = shortUniqueSuffix + '-' + originalName;
 
-        cb(null, finalFileName);
+        const finalFileNameWithoutDash = finalFileName.startsWith('-') ? finalFileName.substring(1) : finalFileName;
+
+        cb(null, finalFileNameWithoutDash);
     }
 });
 
@@ -210,16 +211,22 @@ router.put('/update-SKT/:no_lay', authenticateUser, upload.fields([
 
         // Membuat objek untuk menyimpan jalur file yang diperbarui
         const updateFields = {};
-        if (req.files && req.files.ktp) updateFields.ktp = JSON.stringify([req.files.ktp[0].path]);
-        if (req.files && req.files.surat_permohonan_pengajuan_lks) updateFields.surat_permohonan_pengajuan_lks = JSON.stringify([req.files.surat_permohonan_pengajuan_lks[0].path]);
-        if (req.files && req.files.akta_notaris_pendirian) updateFields.akta_notaris_pendirian = JSON.stringify([req.files.akta_notaris_pendirian[0].path]);
-        if (req.files && req.files.adart) updateFields.adart = JSON.stringify([req.files.adart[0].path]);
-        if (req.files && req.files.struktur_organisasi) updateFields.struktur_organisasi = JSON.stringify([req.files.struktur_organisasi[0].path]);
-        if (req.files && req.files.suket_domisili) updateFields.suket_domisili = JSON.stringify([req.files.suket_domisili[0].path]);
-        if (req.files && req.files.biodata) updateFields.biodata = JSON.stringify([req.files.biodata[0].path]);
-        if (req.files && req.files.proker) updateFields.proker = JSON.stringify([req.files.proker[0].path]);
-        if (req.files && req.files.npwp) updateFields.npwp = JSON.stringify([req.files.npwp[0].path]);
-        if (req.files && req.files.product) updateFields.product = JSON.stringify([req.files.product[0].path]);
+
+        const collectFilePaths = (fieldName) => {
+            return (req.files && req.files[fieldName]) ? JSON.stringify(req.files[fieldName].map(file => file.path)) : null;
+        };
+
+        if (req.files && req.files.ktp) updateFields.ktp = collectFilePaths('ktp');
+        if (req.files && req.files.surat_permohonan_pengajuan_lks) updateFields.surat_permohonan_pengajuan_lks = collectFilePaths('surat_permohonan_pengajuan_lks');
+        if (req.files && req.files.akta_notaris_pendirian) updateFields.akta_notaris_pendirian = collectFilePaths('akta_notaris_pendirian');
+        if (req.files && req.files.adart) updateFields.adart = collectFilePaths('adart');
+        if (req.files && req.files.struktur_organisasi) updateFields.struktur_organisasi = collectFilePaths('struktur_organisasi');
+        if (req.files && req.files.suket_domisili) updateFields.suket_domisili = collectFilePaths('suket_domisili');
+        if (req.files && req.files.biodata) updateFields.biodata = collectFilePaths('biodata');
+        if (req.files && req.files.proker) updateFields.proker = collectFilePaths('proker');
+        if (req.files && req.files.npwp) updateFields.npwp = collectFilePaths('npwp');
+        if (req.files && req.files.product) updateFields.product = collectFilePaths('product');
+
         if (valid_at) updateFields.valid_at = valid_at;
         if (reject_at) updateFields.reject_at = reject_at;
         if (accept_at) updateFields.accept_at = accept_at;
@@ -234,19 +241,10 @@ router.put('/update-SKT/:no_lay', authenticateUser, upload.fields([
         );
 
         if (Object.keys(updateFields).length > 0) {
-            const queryFields = Object.keys(updateFields).map(key => `${key} = ?`).join(', ');
-            const queryValues = Object.values(updateFields);
-
-            await db.execute(
-                `UPDATE lay_skt SET ${queryFields} WHERE no_lay = ?`,
-                [...queryValues, no_lay]
-            );
-
             res.status(200).json({ message: 'Data updated successfully', ...updateFields });
         } else {
             res.status(400).json({ message: 'No fields to update' });
         }
-
         
     } catch (error) {
         console.error(error);
@@ -259,13 +257,12 @@ router.put('/update-SKT/:no_lay', authenticateUser, upload.fields([
 
 router.delete('/delete-SKT/:no_lay', authenticateUser, async (req, res) => {
     const { no_lay } = req.params;
-    const user_nik = req.user.id;
 
     try {
         // Dapatkan data yang akan dihapus
         const [rows] = await db.execute(
-            'SELECT * FROM lay_skt WHERE no_lay = ? AND user_nik = ?',
-            [no_lay, user_nik]
+            'SELECT * FROM lay_skt WHERE no_lay = ?',
+            [no_lay]
         );
 
         if (rows.length === 0) {
@@ -274,39 +271,36 @@ router.delete('/delete-SKT/:no_lay', authenticateUser, async (req, res) => {
 
         const data = rows[0];
 
+        const deleteFiles = (filePaths) => {
+            JSON.parse(filePaths || '[]').forEach(filePath => {
+                const resolvedPath = path.resolve(filePath);
+                if (fs.existsSync(resolvedPath)) {
+                    try {
+                        fs.unlinkSync(resolvedPath);
+                    } catch (err) {
+                        console.error(`Failed to delete file: ${resolvedPath}`, err);
+                    }
+                } else {
+                    console.log(`File does not exist: ${resolvedPath}`);
+                }
+            });
+        };
+
         // Hapus file terkait jika ada
-        if (data.ktp && fs.existsSync(data.ktp)) {
-            fs.unlinkSync(data.ktp);
-        }
-        if (data.surat_permohonan_pengajuan_lks && fs.existsSync(data.surat_permohonan_pengajuan_lks)) {
-            fs.unlinkSync(data.surat_permohonan_pengajuan_lks);
-        }
-        if (data.akta_notaris_pendirian && fs.existsSync(data.akta_notaris_pendirian)) {
-            fs.unlinkSync(data.akta_notaris_pendirian);
-        }
-        if (data.adart && fs.existsSync(data.adart)) {
-            fs.unlinkSync(data.adart);
-        }
-        if (data.struktur_organisasi && fs.existsSync(data.struktur_organisasi)) {
-            fs.unlinkSync(data.struktur_organisasi);
-        }
-        if (data.suket_domisili && fs.existsSync(data.suket_domisili)) {
-            fs.unlinkSync(data.suket_domisili);
-        }
-        if (data.biodata && fs.existsSync(data.biodata)) {
-            fs.unlinkSync(data.biodata);
-        }
-        if (data.proker && fs.existsSync(data.proker)) {
-            fs.unlinkSync(data.proker);
-        }
-        if (data.npwp && fs.existsSync(data.npwp)) {
-            fs.unlinkSync(data.npwp);
-        }
+        deleteFiles(data.ktp);
+        deleteFiles(data.surat_permohonan_pengajuan_lks);
+        deleteFiles(data.akta_notaris_pendirian);
+        deleteFiles(data.adart);
+        deleteFiles(data.struktur_organisasi);
+        deleteFiles(data.suket_domisili);
+        deleteFiles(data.biodata);
+        deleteFiles(data.proker);
+        deleteFiles(data.npwp);
 
         // Hapus entri dari database
         await db.execute(
-            'DELETE FROM lay_skt WHERE no_lay = ? AND user_nik = ?',
-            [no_lay, user_nik]
+            'DELETE FROM lay_skt WHERE no_lay = ?',
+            [no_lay]
         );
 
         res.status(200).json({ message: 'Data deleted successfully' });
@@ -322,7 +316,7 @@ router.delete('/delete-SKT/:no_lay', authenticateUser, async (req, res) => {
 router.get('/all-lay-SKT', async (req, res) => {
     try {
         const [rows] = await db.execute(
-            `SELECT lay_skt.*, users.nik, users.full_name AS nama 
+            `SELECT lay_skt.id AS lay_id, lay_skt.*, users.*
             FROM lay_skt 
             JOIN users ON lay_skt.user_nik = users.nik`
         );
@@ -416,6 +410,44 @@ router.post('/admin-upload-SKT', authenticateUser, upload.fields([
         res.status(500).json({ message: 'Kesalahan database', error });
     }
 });
+
+router.get('/count-pengajuan/:month/:year', authenticateUser, async (req, res) => {
+    const { month, year } = req.params;
+    try {
+        const query = `
+            SELECT 
+                (SELECT COUNT(*) FROM lay_bantuan_logistik WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_bantuan_logistik,
+                (SELECT COUNT(*) FROM lay_dtks WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_DTKS,
+                (SELECT COUNT(*) FROM lay_pbijk WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_PBI_JK,
+                (SELECT COUNT(*) FROM lay_angkat_anak WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_pengangkatan_anak,
+                (SELECT COUNT(*) FROM lay_penyandang_disabilitas WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_penyandang_disabilitas,
+                (SELECT COUNT(*) FROM lay_pub WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_pengumpulan_uang_dan_barang,
+                (SELECT COUNT(*) FROM lay_rehab_anak WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_rehabilitasi_anak_terlantar,
+                (SELECT COUNT(*) FROM lay_rehab_lansia WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_rehabilitasi_lansia,
+                (SELECT COUNT(*) FROM lay_rumah_singgah WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_rumah_singgah,
+                (SELECT COUNT(*) FROM lay_santunan_kematian WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_santunan_kematian,
+                (SELECT COUNT(*) FROM lay_sio WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_SIO,
+                (SELECT COUNT(*) FROM lay_skt WHERE MONTH(submit_at) = ? AND YEAR(submit_at) = ?) as count_lay_SKT
+        `;
+        const params = [
+            month, year, month, year, month, year, month, year, month, year, month, year, 
+            month, year, month, year, month, year, month, year, month, year, month, year
+        ];
+        const [rows] = await db.execute(query, params);
+        res.status(200).json(rows[0]);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Database error', error });
+    }
+});
+
+
+
+
+
+
+
+
 
 
 

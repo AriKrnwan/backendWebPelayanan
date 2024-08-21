@@ -24,7 +24,7 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ msg: "Incorrect password" });
         }
 
-        const token = jwt.sign({ id: user.id, role: user.role_id }, JWT_SECRET, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, role: user.role_id }, JWT_SECRET, { expiresIn: '3h' });
 
         res.status(200).json({ 
             msg: "Login successful",
@@ -33,10 +33,13 @@ router.post('/login', async (req, res) => {
                 id: user.id,
                 NIK: user.nik,
                 nama: user.full_name,
+                gender: user.gender,
                 alamat: user.alamat,
                 kecamatan: user.kecamatan,
                 kelurahan: user.kelurahan,
                 rt: user.rt,
+                pendidikan: user.pendidikan,
+                pekerjaan: user.pekerjaan,
                 email: user.email,
                 no_telp: user.no_telp,
                 role: user.role_id
